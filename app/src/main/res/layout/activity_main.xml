@@ -18,7 +18,18 @@
             android:textSize="28sp"
             android:textStyle="bold"
             android:gravity="center"
-            android:layout_marginBottom="24dp"/>
+            android:layout_marginBottom="8dp"/> <TextView
+        android:id="@+id/tvCloudStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Cloud: Connecting..."
+        android:gravity="center"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#757575"
+        android:layout_marginBottom="16dp"/>
+
+
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -43,7 +54,18 @@
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/swAutoMode"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="16dp"/>
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="⚙"
+                android:padding="0dp"
+                android:textSize="20sp"
+                style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
         </LinearLayout>
 
 

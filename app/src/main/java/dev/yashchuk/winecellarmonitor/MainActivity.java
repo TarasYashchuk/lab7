@@ -1,11 +1,16 @@
 package dev.yashchuk.winecellarmonitor;
 
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -43,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     private DatabaseReference firebaseRef;
     private long referenceTimestamp = 0;
+    private TextView tvCloudStatus;
     private TextView tvTemp, tvHum, tvLight, tvBlindsStatus;
     private SwitchMaterial swCooling, swHumidifier;
     private SeekBar seekBarBlinds;
@@ -54,6 +60,13 @@ public class MainActivity extends AppCompatActivity {
 
     private SwitchMaterial swAutoMode; // Новий світч
     private boolean isAutoMode = false; // Стан автопілота
+
+    private Button btnSettings; // Кнопка налаштувань
+
+    private float limitTempMax = 15.0f;
+    private float limitTempMin = 8.0f;
+    private float limitHumMin = 60.0f;
+    private float limitLightMax = 100.0f;
 
     // База даних
     private AppDatabase db;
@@ -69,9 +82,14 @@ public class MainActivity extends AppCompatActivity {
         firebaseRef = FirebaseDatabase.getInstance().getReference("wine_history");
 
         initializeViews();
+        loadSettings();
         setupChartConfig(); // Налаштування вигляду графіка
         setupListeners();
         startDataPolling();
+
+        monitorCloudConnection();
+
+        tvCloudStatus = findViewById(R.id.tvCloudStatus);
 
     }
 
@@ -89,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
         btnZoomIn = findViewById(R.id.btnZoomIn);
         btnZoomOut = findViewById(R.id.btnZoomOut);
         btnResetZoom = findViewById(R.id.btnResetZoom);
+        btnSettings = findViewById(R.id.btnSettings);
     }
 
     private void setupChartConfig() {
@@ -103,7 +122,6 @@ public class MainActivity extends AppCompatActivity {
         xAxis.setPosition(XAxis.XAxisPosition.BOTTOM);
         xAxis.setLabelCount(4); // Менше підписів, щоб не налізали
 
-        // ВАЖЛИВО: Форматер тепер враховує стартовий час
         xAxis.setValueFormatter(new ValueFormatter() {
             private final SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             @Override
@@ -136,7 +154,6 @@ public class MainActivity extends AppCompatActivity {
         swAutoMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
             isAutoMode = isChecked;
 
-            // Блокуємо ручне керування, якщо включено авто
             swCooling.setEnabled(!isChecked);
             swHumidifier.setEnabled(!isChecked);
             seekBarBlinds.setEnabled(!isChecked);
@@ -150,24 +167,23 @@ public class MainActivity extends AppCompatActivity {
             chartTemp.zoomIn();
         });
 
-        // Кнопка Мінус (-)
         btnZoomOut.setOnClickListener(v -> {
             // Зменшує масштаб
             chartTemp.zoomOut();
         });
 
-        // Кнопка Скинути (Reset)
-        // Повертає графік до початкового стану (щоб побачити всю історію)
         btnResetZoom.setOnClickListener(v -> {
             chartTemp.fitScreen();
         });
+
+        btnSettings.setOnClickListener(v -> showSettingsDialog());
     }
 
     private final Runnable pollingRunnable = new Runnable() {
         @Override
         public void run() {
             fetchData();
-            handler.postDelayed(this, 2000); // Опитування кожні 2 сек
+            handler.postDelayed(this, 2000);
         }
     };
 
@@ -184,7 +200,6 @@ public class MainActivity extends AppCompatActivity {
                     updateUI(data);
                     saveToDb(data);
 
-                    // --- ДОДАТИ ЦЕЙ РЯДОК ---
                     checkRules(data);
                 }
             }
@@ -205,11 +220,8 @@ public class MainActivity extends AppCompatActivity {
             updateChart();
         });
 
-        // 2. Збереження в хмару (Firebase) - НОВЕ
-        // push() створює унікальний ID для запису
         firebaseRef.push().setValue(reading)
                 .addOnSuccessListener(aVoid -> {
-                    // Можна вивести в лог, що успішно
                     Log.d("FIREBASE", "Data sent to cloud");
                 })
                 .addOnFailureListener(e -> {
@@ -222,17 +234,12 @@ public class MainActivity extends AppCompatActivity {
 
         if (readings.isEmpty()) return;
 
-        // Перевертаємо, щоб найстаріший був першим (індекс 0)
         Collections.reverse(readings);
 
-        // 1. Запам'ятовуємо час найпершої точки як "нульовий кілометр"
         referenceTimestamp = readings.get(0).timestamp;
 
         List<Entry> entries = new ArrayList<>();
         for (WineReading r : readings) {
-            // 2. Віднімаємо стартовий час від поточного
-            // Наприклад: 1732553837000 - 1732553837000 = 0
-            // Наступна: 1732553839000 - 1732553837000 = 2000
             float timeOffset = (float) (r.timestamp - referenceTimestamp);
 
             entries.add(new Entry(timeOffset, (float) r.temperature));
@@ -291,37 +298,111 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkRules(WineData data) {
-        if (!isAutoMode) return; // Якщо автопілот вимкнено - нічого не робимо
+        if (!isAutoMode) return;
 
-        // Правило 1: Температура
-        // Якщо > 15 -> Охолодження ON. Якщо впала до норми (< 14) -> OFF (щоб не клацало постійно)
-        if (data.sensors.temperature > 15.0 && !data.actuators.cooling) {
+        if (data.sensors.temperature > limitTempMax && !data.actuators.cooling) {
             sendCommand("cooling", true);
             Log.d("AUTO", "High Temp! Cooling ON");
-        } else if (data.sensors.temperature < 14.0 && data.actuators.cooling) {
+        } else if (data.sensors.temperature < limitTempMin && data.actuators.cooling) {
             sendCommand("cooling", false);
             Log.d("AUTO", "Temp OK. Cooling OFF");
         }
 
-        // Правило 2: Вологість
-        // Якщо < 60% -> Зволожувач ON. Якщо піднялась > 65% -> OFF
-        if (data.sensors.humidity < 60.0 && !data.actuators.humidifier) {
+        if (data.sensors.humidity < limitHumMin && !data.actuators.humidifier) {
             sendCommand("humidifier", true);
             Log.d("AUTO", "Low Humidity! Humidifier ON");
-        } else if (data.sensors.humidity > 65.0 && data.actuators.humidifier) {
+        } else if (data.sensors.humidity > (limitHumMin + 5.0) && data.actuators.humidifier) {
             sendCommand("humidifier", false);
             Log.d("AUTO", "Humidity OK. Humidifier OFF");
         }
 
-        // Правило 3: Світло
-        // Якщо > 100 lx -> Закрити жалюзі (поз. 3). Інакше -> Відкрити (поз. 1)
-        if (data.sensors.light > 100 && data.actuators.blindsPosition != 3) {
-            sendCommand("blinds_position", 3); // 3 = Закрито
+        if (data.sensors.light > limitLightMax && data.actuators.blindsPosition != 3) {
+            sendCommand("blinds_position", 3);
             Log.d("AUTO", "Too bright! Closing blinds");
-        } else if (data.sensors.light < 80 && data.actuators.blindsPosition == 3) {
-            // Відкриваємо назад, якщо стало темно (гістерезис 80)
-            sendCommand("blinds_position", 1); // 1 = Відкрито
+        } else if (data.sensors.light < (limitLightMax - 20) && data.actuators.blindsPosition == 3) {
+            sendCommand("blinds_position", 1);
             Log.d("AUTO", "Dark enough. Opening blinds");
         }
+    }
+
+    private void showSettingsDialog() {
+        // 1. Створюємо вигляд діалогу з XML
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        LayoutInflater inflater = this.getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_settings, null);
+        builder.setView(dialogView);
+
+        // 2. Знаходимо поля введення
+        EditText etMaxTemp = dialogView.findViewById(R.id.etMaxTemp);
+        EditText etMinTemp = dialogView.findViewById(R.id.etMinTemp);
+        EditText etMinHum = dialogView.findViewById(R.id.etMinHum);
+        EditText etMaxLight = dialogView.findViewById(R.id.etMaxLight);
+
+        // 3. Заповнюємо поточними значеннями
+        etMaxTemp.setText(String.valueOf(limitTempMax));
+        etMinTemp.setText(String.valueOf(limitTempMin));
+        etMinHum.setText(String.valueOf(limitHumMin));
+        etMaxLight.setText(String.valueOf(limitLightMax));
+
+        // 4. Кнопка "Зберегти"
+        builder.setTitle("Налаштування Правил")
+                .setPositiveButton("Зберегти", (dialog, id) -> {
+                    try {
+                        // Зчитуємо нові цифри
+                        limitTempMax = Float.parseFloat(etMaxTemp.getText().toString());
+                        limitTempMin = Float.parseFloat(etMinTemp.getText().toString());
+                        limitHumMin = Float.parseFloat(etMinHum.getText().toString());
+                        limitLightMax = Float.parseFloat(etMaxLight.getText().toString());
+
+                        saveSettings(); // Зберігаємо в пам'ять
+                        Toast.makeText(this, "Налаштування оновлено!", Toast.LENGTH_SHORT).show();
+                    } catch (NumberFormatException e) {
+                        Toast.makeText(this, "Помилка! Введіть коректні числа", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Скасувати", (dialog, id) -> dialog.cancel());
+
+        builder.create().show();
+    }
+
+    // Збереження в пам'ять телефону (SharedPreferences)
+    private void saveSettings() {
+        SharedPreferences prefs = getSharedPreferences("WineSettings", MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putFloat("LIMIT_TEMP_MAX", limitTempMax);
+        editor.putFloat("LIMIT_TEMP_MIN", limitTempMin);
+        editor.putFloat("LIMIT_HUM_MIN", limitHumMin);
+        editor.putFloat("LIMIT_LIGHT_MAX", limitLightMax);
+        editor.apply();
+    }
+
+    // Завантаження з пам'яті
+    private void loadSettings() {
+        SharedPreferences prefs = getSharedPreferences("WineSettings", MODE_PRIVATE);
+        limitTempMax = prefs.getFloat("LIMIT_TEMP_MAX", 15.0f);
+        limitTempMin = prefs.getFloat("LIMIT_TEMP_MIN", 8.0f);
+        limitHumMin = prefs.getFloat("LIMIT_HUM_MIN", 60.0f);
+        limitLightMax = prefs.getFloat("LIMIT_LIGHT_MAX", 100.0f);
+    }
+
+    private void monitorCloudConnection() {
+        DatabaseReference connectedRef = FirebaseDatabase.getInstance().getReference(".info/connected");
+        connectedRef.addValueEventListener(new com.google.firebase.database.ValueEventListener() {
+            @Override
+            public void onDataChange(@androidx.annotation.NonNull com.google.firebase.database.DataSnapshot snapshot) {
+                boolean connected = Boolean.TRUE.equals(snapshot.getValue(Boolean.class));
+                if (connected) {
+                    tvCloudStatus.setText("Cloud: ● Online");
+                    tvCloudStatus.setTextColor(Color.parseColor("#4CAF50")); // Зелений
+                } else {
+                    tvCloudStatus.setText("Cloud: ● Offline");
+                    tvCloudStatus.setTextColor(Color.parseColor("#F44336")); // Червоний
+                }
+            }
+
+            @Override
+            public void onCancelled(@androidx.annotation.NonNull com.google.firebase.database.DatabaseError error) {
+            }
+        });
     }
 }

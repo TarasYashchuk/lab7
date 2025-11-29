@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Межі Auto"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Макс. Температура (°C) [Охолодження]"
+        android:textSize="12sp"
+        android:textColor="#555555"/>
+
+    <EditText
+        android:id="@+id/etMaxTemp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:hint="15.0"
+        android:layout_marginBottom="12dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Мін. Температура (°C) [Вимк. охолодж.]"
+        android:textSize="12sp"
+        android:textColor="#555555"/>
+
+    <EditText
+        android:id="@+id/etMinTemp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:hint="8.0"
+        android:layout_marginBottom="12dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Мін. Вологість (%) [Зволоження]"
+        android:textSize="12sp"
+        android:textColor="#555555"/>
+
+    <EditText
+        android:id="@+id/etMinHum"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:hint="60.0"
+        android:layout_marginBottom="12dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Макс. Світло (lx) [Жалюзі]"
+        android:textSize="12sp"
+        android:textColor="#555555"/>
+
+    <EditText
+        android:id="@+id/etMaxLight"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:hint="100"
+        android:layout_marginBottom="12dp"/>
+
+</LinearLayout>
